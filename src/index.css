@@ -1,13 +1,224 @@
-body {
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Brandbook Colors */
+  --blue-background: #3A5F76;
+  --blue-light: #A3D2F2;
+  --red-compass: #E74C3C;
+  --beige-map: #F6E3B4;
+  --white-text: #FFFFFF;
+  
+  /* Additional colors */
+  --blue-dark: #2C4A5F;
+  --blue-lighter: #D4E8F7;
+  --gray-light: #F5F5F5;
+  --gray-medium: #9E9E9E;
+  --gray-dark: #424242;
+  --shadow-light: rgba(0, 0, 0, 0.1);
+  --shadow-medium: rgba(0, 0, 0, 0.2);
+}
+
+* {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--blue-background);
+  color: var(--white-text);
+  overflow: hidden;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+#root {
+  height: 100vh;
+  width: 100vw;
 }
+
+/* Leaflet map container */
+.leaflet-container {
+  background-color: var(--blue-light);
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Custom button styles */
+.btn-primary {
+  background-color: var(--blue-background);
+  color: var(--white-text);
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px var(--shadow-light);
+}
+
+.btn-primary:hover {
+  background-color: var(--blue-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px var(--shadow-medium);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: var(--white-text);
+  border: 2px solid var(--white-text);
+  border-radius: 8px;
+  padding: 10px 22px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background-color: var(--white-text);
+  color: var(--blue-background);
+}
+
+/* Card styles */
+.card {
+  background-color: var(--white-text);
+  color: var(--gray-dark);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 12px var(--shadow-medium);
+  margin: 10px;
+}
+
+/* Overlay controls */
+.overlay-controls {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  background-color: var(--white-text);
+  color: var(--gray-dark);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 12px var(--shadow-medium);
+  min-width: 280px;
+}
+
+.overlay-controls h3 {
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 12px;
+  color: var(--blue-background);
+}
+
+.control-group {
+  margin-bottom: 16px;
+}
+
+.control-group label {
+  display: block;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 6px;
+  color: var(--gray-dark);
+}
+
+.control-group input[type="range"] {
+  width: 100%;
+  margin: 8px 0;
+}
+
+.control-group input[type="file"] {
+  width: 100%;
+  padding: 8px;
+  border: 2px dashed var(--blue-light);
+  border-radius: 6px;
+  background-color: var(--blue-lighter);
+}
+
+/* Compass indicator */
+.compass-indicator {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  background-color: var(--red-compass);
+  color: var(--white-text);
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 18px;
+  box-shadow: 0 4px 12px var(--shadow-medium);
+}
+
+/* GPS indicator */
+.gps-indicator {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  z-index: 1000;
+  background-color: var(--blue-background);
+  color: var(--white-text);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  box-shadow: 0 4px 12px var(--shadow-medium);
+}
+
+/* Loading spinner */
+.loading {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--blue-lighter);
+  border-radius: 50%;
+  border-top-color: var(--blue-background);
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .overlay-controls {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    min-width: auto;
+  }
+  
+  .compass-indicator {
+    top: 10px;
+    left: 10px;
+    width: 50px;
+    height: 50px;
+    font-size: 16px;
+  }
+  
+  .gps-indicator {
+    bottom: 10px;
+    left: 10px;
+    right: 10px;
+  }
+} 

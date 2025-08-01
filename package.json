@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@capacitor/android": "^7.4.2",
+    "@capacitor/cli": "^7.4.2",
+    "@capacitor/core": "^7.4.2",
+    "@capacitor/device": "^7.0.1",
+    "@capacitor/geolocation": "^7.1.4",
+    "@supabase/supabase-js": "^2.53.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.6.4",
     "@testing-library/react": "^16.3.0",
@@ -11,8 +17,10 @@
     "@types/node": "^16.18.126",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
+    "leaflet": "^1.9.4",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-leaflet": "^5.0.0",
     "react-scripts": "5.0.1",
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
@@ -21,7 +29,13 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "cap:sync": "cap sync",
+    "cap:build": "npm run build && cap sync",
+    "cap:open:android": "cap open android",
+    "cap:run:android": "cap run android",
+    "cap:build:android": "npm run cap:build && cap open android",
+    "serve": "npx serve -s build -l 3000"
   },
   "eslintConfig": {
     "extends": [
@@ -40,5 +54,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.20"
   }
 }
