@@ -3,7 +3,9 @@ import Map from './components/Map';
 import { useLocation } from './hooks/useLocation';
 import LoginModal from './components/LoginModal';
 import Sidebar from './components/Sidebar';
+import EditMapModal from './components/EditMapModal';
 import { authService, AuthUser } from './services/auth';
+import { OverlayData } from './types';
 import './App.css';
 
 function App() {
@@ -11,6 +13,10 @@ function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedMap, setSelectedMap] = useState<OverlayData | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingMap, setEditingMap] = useState<OverlayData | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   const {
     location,
@@ -35,14 +41,21 @@ function App() {
       }
     };
 
+    // Set a timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      setIsLoading(false);
+    }, 10000); // 10 seconds timeout
+
     initAuth();
 
     // Listen to auth state changes
     const { data: { subscription } } = authService.onAuthStateChange((user) => {
       setUser(user);
+      clearTimeout(timeoutId); // Clear timeout if auth state changes
     });
 
     return () => {
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);
@@ -77,6 +90,64 @@ function App() {
     }
   };
 
+  const handleMapSelect = (map: OverlayData) => {
+    setSelectedMap(map);
+    setIsEditMode(false);
+  };
+
+  const handleMapEdit = (map: OverlayData) => {
+    setSelectedMap(map);
+    setEditingMap(map);
+    setIsEditMode(true);
+  };
+
+  const handleClearMapSelection = () => {
+    setSelectedMap(null);
+    setIsEditMode(false);
+    setEditingMap(null);
+  };
+
+  const handleEditComplete = (bounds: L.LatLngBounds) => {
+    if (editingMap) {
+      const anchorPoints = (window as any).currentAnchorPoints;
+      const calculatedCenter = (window as any).currentCenterPosition;
+      
+      // Use calculated center position from anchor points for consistency
+      const centerPosition = calculatedCenter || bounds.getCenter();
+      
+      const updatedMap = {
+        ...editingMap,
+        position: { lat: centerPosition.lat, lng: centerPosition.lng },
+        anchorPoints: anchorPoints // Include anchor points
+      };
+      
+      setEditingMap(updatedMap);
+    }
+  };
+
+  // Listen for clear map selection event
+  useEffect(() => {
+    const handleClearEvent = () => {
+      handleClearMapSelection();
+    };
+
+    const handleConfirmEditEvent = () => {
+      setIsEditMode(false);
+      // Open edit modal with calculated values
+      if (editingMap) {
+        setIsEditModalOpen(true);
+      }
+    };
+
+    window.addEventListener('clearMapSelection', handleClearEvent);
+    window.addEventListener('confirmMapEdit', handleConfirmEditEvent);
+    
+    return () => {
+      window.removeEventListener('clearMapSelection', handleClearEvent);
+      window.removeEventListener('confirmMapEdit', handleConfirmEditEvent);
+    };
+  }, [editingMap]);
+
   if (isLoading) {
     return (
       <div style={{
@@ -106,8 +177,13 @@ function App() {
 
   return (
     <div className="App">
-      {/* Main Map */}
-      <Map currentLocation={location} />
+        {/* Main Map */}
+        <Map 
+          currentLocation={location} 
+          selectedMap={selectedMap} 
+          isEditMode={isEditMode}
+          onEditComplete={handleEditComplete}
+        />
 
       {/* Menu Button */}
       <button
@@ -237,6 +313,23 @@ function App() {
         user={user}
         onSignOut={handleSignOut}
         onSignIn={() => setIsLoginModalOpen(true)}
+        onMapSelect={handleMapSelect}
+        onMapEdit={handleMapEdit}
+      />
+
+      {/* Edit Map Modal */}
+      <EditMapModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingMap(null);
+        }}
+        map={editingMap}
+        onMapUpdated={() => {
+          setIsEditModalOpen(false);
+          setEditingMap(null);
+          setSelectedMap(null);
+        }}
       />
     </div>
   );

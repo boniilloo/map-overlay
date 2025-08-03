@@ -32,23 +32,53 @@ export const overlayService = {
       throw error;
     }
 
-    return data || [];
+    // Map database fields to frontend format
+    const mappedData = (data || []).map((row: any) => {
+      const overlay = {
+        id: row.id,
+        name: row.name,
+        imageUrl: row.image_url, // Map image_url to imageUrl
+        opacity: row.opacity,
+        scale: row.scale,
+        rotation: row.rotation,
+        position: row.position,
+        anchorPoints: row.anchor_points, // Map anchor_points to anchorPoints
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        userId: row.user_id
+      };
+      
+      return overlay;
+    });
+    
+    return mappedData;
   },
 
   // Create a new overlay
   async createOverlay(overlay: Omit<OverlayData, 'id' | 'createdAt' | 'updatedAt'>): Promise<OverlayData> {
+    // Calculate position from anchor points if available
+    let position = overlay.position;
+    if (overlay.anchorPoints) {
+      position = {
+        lat: (overlay.anchorPoints.topLeft.lat + overlay.anchorPoints.bottomRight.lat) / 2,
+        lng: (overlay.anchorPoints.topLeft.lng + overlay.anchorPoints.bottomRight.lng) / 2
+      };
+    }
+    
+    const insertData = {
+      name: overlay.name,
+      image_url: overlay.imageUrl,
+      opacity: overlay.opacity,
+      scale: overlay.scale,
+      rotation: overlay.rotation,
+      position: position, // Use calculated position
+      anchor_points: overlay.anchorPoints, // Include anchor_points
+      user_id: overlay.userId
+    };
+    
     const { data, error } = await supabase
       .from('overlays')
-      .insert([{
-        name: overlay.name,
-        image_url: overlay.imageUrl,
-        opacity: overlay.opacity,
-        scale: overlay.scale,
-        rotation: overlay.rotation,
-        position: overlay.position,
-        anchor_points: overlay.anchorPoints,
-        user_id: overlay.userId
-      }])
+      .insert([insertData])
       .select()
       .single();
 
@@ -57,22 +87,53 @@ export const overlayService = {
       throw error;
     }
 
-    return data;
+    // Map database fields to frontend format
+    const result = {
+      id: data.id,
+      name: data.name,
+      imageUrl: data.image_url, // Map image_url to imageUrl
+      opacity: data.opacity,
+      scale: data.scale,
+      rotation: data.rotation,
+      position: data.position,
+      anchorPoints: data.anchor_points, // Map anchor_points to anchorPoints
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      userId: data.user_id
+    };
+    
+    return result;
   },
 
   // Update an existing overlay
   async updateOverlay(id: string, updates: Partial<OverlayData>): Promise<OverlayData> {
+
+    
+    // Calculate position from anchor points if available
+    let position = updates.position;
+    if (updates.anchorPoints) {
+      position = {
+        lat: (updates.anchorPoints.topLeft.lat + updates.anchorPoints.bottomRight.lat) / 2,
+        lng: (updates.anchorPoints.topLeft.lng + updates.anchorPoints.bottomRight.lng) / 2
+      };
+
+    }
+    
+    const updateData = {
+      name: updates.name,
+      opacity: updates.opacity,
+      scale: updates.scale,
+      rotation: updates.rotation,
+      position: position, // Use calculated position
+      anchor_points: updates.anchorPoints, // Include anchor_points in updates
+      updated_at: new Date().toISOString()
+    };
+    
+
+    
     const { data, error } = await supabase
       .from('overlays')
-      .update({
-        name: updates.name,
-        opacity: updates.opacity,
-        scale: updates.scale,
-        rotation: updates.rotation,
-        position: updates.position,
-        anchor_points: updates.anchorPoints,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -81,6 +142,7 @@ export const overlayService = {
       console.error('Error updating overlay:', error);
       throw error;
     }
+
 
     return data;
   },

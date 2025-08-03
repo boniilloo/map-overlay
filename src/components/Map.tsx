@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { GPSLocation } from '../types';
+import { GPSLocation, OverlayData } from '../types';
 
 // Fix for default markers in Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -14,6 +14,9 @@ L.Icon.Default.mergeOptions({
 
 interface MapProps {
   currentLocation: GPSLocation | null;
+  selectedMap: OverlayData | null;
+  isEditMode: boolean;
+  onEditComplete: (bounds: L.LatLngBounds) => void;
 }
 
 // Component to handle map center updates
@@ -21,7 +24,14 @@ const MapUpdater: React.FC<{ center: [number, number] }> = ({ center }) => {
   const map = useMap();
   
   useEffect(() => {
-    map.setView(center, map.getZoom());
+    // Ensure map is ready before updating view
+    if (map && map.getContainer()) {
+      try {
+        map.setView(center, map.getZoom());
+      } catch (error) {
+        console.error('Error updating map view:', error);
+      }
+    }
   }, [center, map]);
 
   return null;
@@ -88,6 +98,542 @@ const CenterLocationButton: React.FC<{ currentLocation: GPSLocation | null }> = 
   );
 };
 
+// Component for handling image overlay with proper error handling
+const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolean; onEditComplete: (bounds: L.LatLngBounds) => void }> = ({ overlay, isEditMode, onEditComplete }) => {
+  const map = useMap();
+  const overlayRef = useRef<L.ImageOverlay | null>(null);
+  const cornerMarkersRef = useRef<L.Marker[]>([]);
+  const anchorPointMarkersRef = useRef<L.Marker[]>([]);
+  const [imageError, setImageError] = useState(false);
+  
+  // Variables para el arrastre de la imagen
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number; bounds: L.LatLngBounds } | null>(null);
+  
+
+
+  // Function to calculate center position from anchor points
+  const calculateCenterFromAnchorPoints = (anchorPoints: any) => {
+    return {
+      lat: (anchorPoints.topLeft.lat + anchorPoints.bottomRight.lat) / 2,
+      lng: (anchorPoints.topLeft.lng + anchorPoints.bottomRight.lng) / 2
+    };
+  };
+
+  // Expose function to get current bounds and anchor points
+  const getCurrentBounds = () => {
+    if (cornerMarkersRef.current.length > 0) {
+      const positions = cornerMarkersRef.current.map(m => m.getLatLng());
+      const minLat = Math.min(...positions.map(p => p.lat));
+      const maxLat = Math.max(...positions.map(p => p.lat));
+      const minLng = Math.min(...positions.map(p => p.lng));
+      const maxLng = Math.max(...positions.map(p => p.lng));
+      
+      const bounds = L.latLngBounds(
+        [minLat, minLng],
+        [maxLat, maxLng]
+      );
+      
+      // Calculate anchor points in the correct format for rectangular shape
+      const anchorPoints = {
+        topLeft: { lat: maxLat, lng: minLng },
+        topRight: { lat: maxLat, lng: maxLng },
+        bottomLeft: { lat: minLat, lng: minLng },
+        bottomRight: { lat: minLat, lng: maxLng }
+      };
+      
+      // Calculate center position from anchor points
+      const centerPosition = calculateCenterFromAnchorPoints(anchorPoints);
+      
+
+      
+      return { bounds, anchorPoints, centerPosition };
+    }
+    return null;
+  };
+
+  // Expose getCurrentBounds globally for the confirm button
+  (window as any).getCurrentOverlayBounds = getCurrentBounds;
+
+  // Función para manejar el inicio del arrastre de la imagen
+  const handleImageDragStart = (e: MouseEvent) => {
+    if (!isEditMode || !overlayRef.current) return;
+    
+    // Prevenir completamente cualquier interacción con el mapa
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    
+    isDraggingRef.current = true;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      bounds: overlayRef.current.getBounds()
+    };
+    
+    // Deshabilitar completamente el arrastre del mapa
+    map.dragging.disable();
+    map.touchZoom.disable();
+    map.doubleClickZoom.disable();
+    map.scrollWheelZoom.disable();
+    
+    // Cambiar el cursor
+    document.body.style.cursor = 'grabbing';
+    
+    // Agregar una clase al body para prevenir selección de texto
+    document.body.style.userSelect = 'none';
+    (document.body.style as any).webkitUserSelect = 'none';
+    (document.body.style as any).mozUserSelect = 'none';
+    (document.body.style as any).msUserSelect = 'none';
+  };
+
+  // Función para manejar el arrastre de la imagen
+  const handleImageDrag = (e: MouseEvent) => {
+    if (!isDraggingRef.current || !dragStartRef.current || !overlayRef.current) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    
+    // Calcular el desplazamiento desde el punto inicial
+    const deltaX = e.clientX - dragStartRef.current.x;
+    const deltaY = e.clientY - dragStartRef.current.y;
+    
+    // Convertir el desplazamiento en píxeles a coordenadas geográficas
+    const startPoint = map.containerPointToLatLng([0, 0]);
+    const endPoint = map.containerPointToLatLng([deltaX, deltaY]);
+    
+    const latOffset = endPoint.lat - startPoint.lat;
+    const lngOffset = endPoint.lng - startPoint.lng;
+    
+    // Obtener los bounds originales (del inicio del arrastre)
+    const originalBounds = dragStartRef.current.bounds;
+    
+    // Crear nuevos bounds desplazados desde la posición original
+    const newBounds = L.latLngBounds(
+      [originalBounds.getSouthWest().lat + latOffset, originalBounds.getSouthWest().lng + lngOffset],
+      [originalBounds.getNorthEast().lat + latOffset, originalBounds.getNorthEast().lng + lngOffset]
+    );
+    
+    // Actualizar la posición de la imagen
+    overlayRef.current.setBounds(newBounds);
+    
+    // Actualizar la posición de los marcadores de esquina
+    if (cornerMarkersRef.current.length > 0) {
+      const newCornerPositions = [
+        [newBounds.getSouthWest().lat, newBounds.getSouthWest().lng], // Southwest
+        [newBounds.getSouthWest().lat, newBounds.getNorthEast().lng], // Southeast
+        [newBounds.getNorthEast().lat, newBounds.getNorthEast().lng], // Northeast
+        [newBounds.getNorthEast().lat, newBounds.getSouthWest().lng]  // Northwest
+      ];
+      
+      cornerMarkersRef.current.forEach((marker, index) => {
+        marker.setLatLng(newCornerPositions[index] as [number, number]);
+      });
+    }
+  };
+
+  // Función para manejar el fin del arrastre de la imagen
+  const handleImageDragEnd = (e: MouseEvent) => {
+    if (!isDraggingRef.current) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    
+    isDraggingRef.current = false;
+    dragStartRef.current = null;
+    
+    // Habilitar todas las interacciones del mapa
+    map.dragging.enable();
+    map.touchZoom.enable();
+    map.doubleClickZoom.enable();
+    map.scrollWheelZoom.enable();
+    
+    // Restaurar el cursor y la selección de texto
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    (document.body.style as any).webkitUserSelect = '';
+    (document.body.style as any).mozUserSelect = '';
+    (document.body.style as any).msUserSelect = '';
+  };
+
+  // useEffect para manejar eventos globales de mouse
+  useEffect(() => {
+    if (!isEditMode) return;
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (isDraggingRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleImageDrag(e);
+      }
+    };
+
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (isDraggingRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleImageDragEnd(e);
+      }
+    };
+
+    // Agregar eventos globales para manejar el arrastre fuera del elemento
+    document.addEventListener('mousemove', handleGlobalMouseMove);
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove);
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isEditMode]);
+
+  useEffect(() => {
+    if (!map || !overlay || !map.getContainer()) return;
+
+    // Remove existing overlay and corner markers
+    if (overlayRef.current) {
+      try {
+        map.removeLayer(overlayRef.current);
+        console.log('[Overlay] Removed previous overlay');
+      } catch (error) {
+        console.error('[Overlay] Error removing existing overlay:', error);
+      }
+      overlayRef.current = null;
+    }
+
+    // Remove corner markers
+    cornerMarkersRef.current.forEach(marker => {
+      try {
+        map.removeLayer(marker);
+      } catch (error) {
+        console.error('[Overlay] Error removing corner marker:', error);
+      }
+    });
+    cornerMarkersRef.current = [];
+
+    // Remove anchor point markers
+    anchorPointMarkersRef.current.forEach(marker => {
+      try {
+        map.removeLayer(marker);
+      } catch (error) {
+        console.error('[Overlay] Error removing anchor point marker:', error);
+      }
+    });
+    anchorPointMarkersRef.current = [];
+
+    // Create bounds for the image overlay
+    let bounds: L.LatLngBoundsExpression;
+    
+    if (overlay.anchorPoints) {
+      // Use anchor points if available (more precise positioning)
+      bounds = [
+        [overlay.anchorPoints.bottomLeft.lat, overlay.anchorPoints.bottomLeft.lng],
+        [overlay.anchorPoints.topRight.lat, overlay.anchorPoints.topRight.lng]
+      ];
+    } else {
+      // Fallback to position-based bounds with scale applied
+      const baseLat = overlay.position.lat;
+      const baseLng = overlay.position.lng;
+      const size = 0.01 * overlay.scale; // Apply scale to the size
+      
+      bounds = [
+        [baseLat - size, baseLng - size],
+        [baseLat + size, baseLng + size]
+      ];
+    }
+
+    try {
+      // Create new image overlay
+      const imageOverlay = L.imageOverlay(overlay.imageUrl, bounds, {
+        opacity: overlay.opacity,
+        interactive: true,
+        bubblingMouseEvents: false // Evitar que los eventos se propaguen al mapa
+      });
+
+      // Add error handling for image loading
+      const element = imageOverlay.getElement();
+      if (element) {
+        const img = element.querySelector('img');
+        if (img) {
+          img.onerror = () => {
+            console.error('[Overlay] Error loading image:', overlay.imageUrl);
+            setImageError(true);
+          };
+          img.onload = () => {
+            setImageError(false);
+          };
+        }
+      }
+
+      // Apply rotation if needed
+      if (overlay.rotation !== 0) {
+        const element = imageOverlay.getElement();
+        if (element) {
+          element.style.transform += ` rotate(${overlay.rotation}deg)`;
+        }
+      }
+
+      // Add visual border and drag functionality in edit mode
+      if (isEditMode) {
+        // Wait for the image to load before applying styles
+        const element = imageOverlay.getElement();
+        if (element) {
+          // Apply styles immediately
+          element.style.border = '4px solid #3A5F76';
+          element.style.boxShadow = '0 0 15px rgba(58, 95, 118, 0.7)';
+          element.style.borderRadius = '4px';
+          element.style.zIndex = '1000';
+          element.style.cursor = 'grab';
+          element.title = 'Arrastra para mover el mapa';
+          
+          // Crear un div transparente que cubra la imagen para manejar el arrastre
+          const dragOverlay = document.createElement('div');
+          dragOverlay.style.position = 'absolute';
+          dragOverlay.style.top = '0';
+          dragOverlay.style.left = '0';
+          dragOverlay.style.width = '100%';
+          dragOverlay.style.height = '100%';
+          dragOverlay.style.cursor = 'grab';
+          dragOverlay.style.zIndex = '1001';
+          dragOverlay.style.pointerEvents = 'auto';
+          dragOverlay.title = 'Arrastra para mover el mapa';
+          
+          // Agregar eventos de arrastre al div transparente
+          dragOverlay.addEventListener('mousedown', handleImageDragStart);
+          dragOverlay.addEventListener('mouseenter', () => {
+            if (!isDraggingRef.current) {
+              dragOverlay.style.cursor = 'grab';
+              element.style.transform = 'scale(1.01)';
+            }
+          });
+          dragOverlay.addEventListener('mouseleave', () => {
+            if (!isDraggingRef.current) {
+              dragOverlay.style.cursor = 'grab';
+              element.style.transform = 'scale(1)';
+            }
+          });
+          
+          // Agregar el div transparente al elemento de la imagen
+          element.style.position = 'relative';
+          element.appendChild(dragOverlay);
+          
+          // Guardar referencia para limpiar después
+          (element as any)._dragOverlay = dragOverlay;
+        }
+        
+        // Also apply styles after image loads
+        const img = element?.querySelector('img');
+        if (img && element) {
+          img.addEventListener('load', () => {
+            if (isEditMode) {
+              element.style.border = '4px solid #3A5F76';
+              element.style.boxShadow = '0 0 15px rgba(58, 95, 118, 0.7)';
+              element.style.borderRadius = '4px';
+              element.style.zIndex = '1000';
+              element.style.cursor = 'grab';
+              element.title = 'Arrastra para mover el mapa';
+            }
+          });
+        }
+      }
+
+      // Add to map
+      imageOverlay.addTo(map);
+      overlayRef.current = imageOverlay;
+
+      // Apply CSS class for edit mode styling
+      if (isEditMode) {
+        const element = imageOverlay.getElement();
+        if (element) {
+          element.classList.add('edit-mode-overlay');
+        }
+      }
+
+      
+
+              // Add corner markers if in edit mode
+        if (isEditMode) {
+          const boundsArray = bounds as [[number, number], [number, number]];
+          const cornerPositions = [
+            [boundsArray[0][0], boundsArray[0][1]], // Southwest
+            [boundsArray[0][0], boundsArray[1][1]], // Southeast
+            [boundsArray[1][0], boundsArray[1][1]], // Northeast
+            [boundsArray[1][0], boundsArray[0][1]]  // Northwest
+          ];
+
+        cornerPositions.forEach((pos, index) => {
+          const marker = L.marker(pos as [number, number], {
+            draggable: true,
+            icon: L.divIcon({
+              className: 'corner-marker',
+              html: `<div style="
+                width: 16px;
+                height: 16px;
+                background: #3A5F76;
+                border: 3px solid white;
+                border-radius: 50%;
+                cursor: move;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+                position: relative;
+              ">
+                <div style="
+                  position: absolute;
+                  top: 50%;
+                  left: 50%;
+                  transform: translate(-50%, -50%);
+                  width: 4px;
+                  height: 4px;
+                  background: white;
+                  border-radius: 50%;
+                "></div>
+              </div>`,
+              iconSize: [16, 16],
+              iconAnchor: [8, 8]
+            })
+          });
+
+          marker.on('drag', () => {
+            if (overlayRef.current) {
+              // Get the current position of the dragged marker
+              const draggedPosition = marker.getLatLng();
+              
+              // Determine which corner is being dragged based on the index
+              // 0: Southwest, 1: Southeast, 2: Northeast, 3: Northwest
+              let newBounds: L.LatLngBounds;
+              
+              if (index === 0) { // Southwest corner
+                // Use the dragged position for southwest, keep northeast fixed
+                const northeast = cornerMarkersRef.current[2].getLatLng();
+                newBounds = L.latLngBounds(
+                  [draggedPosition.lat, draggedPosition.lng], // Southwest
+                  [northeast.lat, northeast.lng] // Northeast
+                );
+              } else if (index === 1) { // Southeast corner
+                // Use the dragged position for southeast, keep northwest fixed
+                const northwest = cornerMarkersRef.current[3].getLatLng();
+                newBounds = L.latLngBounds(
+                  [draggedPosition.lat, northwest.lng], // Southwest
+                  [northwest.lat, draggedPosition.lng] // Northeast
+                );
+              } else if (index === 2) { // Northeast corner
+                // Use the dragged position for northeast, keep southwest fixed
+                const southwest = cornerMarkersRef.current[0].getLatLng();
+                newBounds = L.latLngBounds(
+                  [southwest.lat, southwest.lng], // Southwest
+                  [draggedPosition.lat, draggedPosition.lng] // Northeast
+                );
+              } else { // index === 3: Northwest corner
+                // Use the dragged position for northwest, keep southeast fixed
+                const southeast = cornerMarkersRef.current[1].getLatLng();
+                newBounds = L.latLngBounds(
+                  [draggedPosition.lat, southeast.lng], // Southwest
+                  [southeast.lat, draggedPosition.lng] // Northeast
+                );
+              }
+              
+              // Update overlay bounds
+              overlayRef.current.setBounds(newBounds);
+              
+              // Update the other three corner markers based on the new bounds
+              const newCornerPositions = [
+                [newBounds.getSouthWest().lat, newBounds.getSouthWest().lng], // Southwest
+                [newBounds.getSouthWest().lat, newBounds.getNorthEast().lng], // Southeast
+                [newBounds.getNorthEast().lat, newBounds.getNorthEast().lng], // Northeast
+                [newBounds.getNorthEast().lat, newBounds.getSouthWest().lng]  // Northwest
+              ];
+              
+              // Update all markers except the one being dragged
+              cornerMarkersRef.current.forEach((marker, idx) => {
+                if (idx !== index) {
+                  const newPos = newCornerPositions[idx];
+                  marker.setLatLng(newPos as [number, number]);
+                }
+              });
+            }
+          });
+
+          marker.addTo(map);
+          cornerMarkersRef.current.push(marker);
+        });
+      }
+
+    } catch (error) {
+      console.error('[Overlay] Error creating image overlay:', error);
+    }
+
+    // Cleanup function
+    return () => {
+      // Limpiar eventos de arrastre si existen
+      if (overlayRef.current) {
+        const element = overlayRef.current.getElement();
+        if (element) {
+          // Remover el div transparente si existe
+          const dragOverlay = (element as any)._dragOverlay;
+          if (dragOverlay && dragOverlay.parentNode) {
+            dragOverlay.parentNode.removeChild(dragOverlay);
+          }
+        }
+      }
+
+      if (overlayRef.current && map.getContainer()) {
+        try {
+          map.removeLayer(overlayRef.current);
+        } catch (error) {
+          console.error('[Overlay] Error cleaning up overlay:', error);
+        }
+        overlayRef.current = null;
+      }
+
+      // Remove corner markers
+      cornerMarkersRef.current.forEach(marker => {
+        try {
+          map.removeLayer(marker);
+        } catch (error) {
+          console.error('[Overlay] Error removing corner marker:', error);
+        }
+      });
+      cornerMarkersRef.current = [];
+    };
+  }, [map, overlay, isEditMode]);
+
+  // Show error message if image failed to load
+  if (imageError) {
+    return (
+      <div
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: 'rgba(220, 53, 69, 0.9)',
+          color: 'white',
+          padding: '16px 24px',
+          borderRadius: '8px',
+          zIndex: 1000,
+          textAlign: 'center',
+          maxWidth: '300px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+        }}
+      >
+        <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>
+          ⚠️ Error al cargar el mapa
+        </div>
+        <div style={{ fontSize: '14px', opacity: 0.9 }}>
+          No se pudo cargar la imagen del mapa. 
+          {overlay.imageUrl.includes('.pdf') && (
+            <div style={{ marginTop: '8px', fontSize: '12px' }}>
+              Los PDFs deben ser convertidos a imagen antes de subirlos.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
+
 // Component for current location marker that updates properly
 const CurrentLocationMarker: React.FC<{ currentLocation: GPSLocation | null }> = ({ currentLocation }) => {
   const map = useMap();
@@ -129,9 +675,10 @@ const CurrentLocationMarker: React.FC<{ currentLocation: GPSLocation | null }> =
   );
 };
 
-const Map: React.FC<MapProps> = ({ currentLocation }) => {
+const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onEditComplete }) => {
   const [mapCenter, setMapCenter] = useState<[number, number]>([40.4168, -3.7038]); // Madrid default
   const [zoom] = useState(13);
+  const [isMapReady, setIsMapReady] = useState(false);
 
   // Update map center when location changes
   useEffect(() => {
@@ -143,6 +690,19 @@ const Map: React.FC<MapProps> = ({ currentLocation }) => {
     }
   }, [currentLocation]);
 
+  // Update map center when a map is selected
+  useEffect(() => {
+    if (selectedMap && isMapReady) {
+      const { lat, lng } = selectedMap.position;
+      setMapCenter([lat, lng]);
+    }
+  }, [selectedMap, isMapReady]);
+
+  // Handle map ready state
+  const handleMapReady = () => {
+    setIsMapReady(true);
+  };
+
   return (
     <div style={{ height: '100vh', width: '100vw' }}>
       <MapContainer
@@ -150,6 +710,7 @@ const Map: React.FC<MapProps> = ({ currentLocation }) => {
         zoom={zoom}
         style={{ height: '100%', width: '100%' }}
         zoomControl={true}
+        whenReady={handleMapReady}
       >
         {/* OpenStreetMap base layer */}
         <TileLayer
@@ -160,11 +721,134 @@ const Map: React.FC<MapProps> = ({ currentLocation }) => {
                 {/* Current location marker */}
         <CurrentLocationMarker currentLocation={currentLocation} />
         
+        {/* Selected map overlay */}
+        {selectedMap && isMapReady && (
+          <ImageOverlayComponent 
+            overlay={{
+              ...selectedMap,
+              // Apply scale and rotation transformations
+              position: selectedMap.position,
+              opacity: selectedMap.opacity
+            }}
+            isEditMode={isEditMode}
+            onEditComplete={onEditComplete}
+          />
+        )}
+        
+        {/* Selected map marker */}
+        {selectedMap && (
+          <Marker
+            position={[selectedMap.position.lat, selectedMap.position.lng]}
+            icon={L.divIcon({
+              className: 'selected-map-marker',
+              html: `<div style="
+                background: #3A5F76;
+                color: white;
+                padding: 8px 12px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: bold;
+                white-space: nowrap;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                border: 2px solid white;
+              ">${selectedMap.name}</div>`,
+              iconSize: [0, 0],
+              iconAnchor: [0, 0]
+            })}
+          />
+        )}
+        
         {/* Map updater component */}
-        <MapUpdater center={mapCenter} />
+        {isMapReady && <MapUpdater center={mapCenter} />}
         
         {/* Center location button */}
         <CenterLocationButton currentLocation={currentLocation} />
+        
+        {/* Clear map selection button */}
+        {selectedMap && !isEditMode && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '20px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000,
+              backgroundColor: '#E74C3C',
+              color: 'white',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              border: 'none',
+              fontSize: '14px',
+              fontWeight: '600',
+              transition: 'all 0.2s ease'
+            }}
+            onClick={() => {
+              // This will be handled by the parent component
+              window.dispatchEvent(new CustomEvent('clearMapSelection'));
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#C53030';
+              e.currentTarget.style.transform = 'translateX(-50%) scale(1.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#E74C3C';
+              e.currentTarget.style.transform = 'translateX(-50%) scale(1)';
+            }}
+            title="Limpiar selección de mapa"
+          >
+            ✕ Limpiar mapa
+          </div>
+        )}
+
+        {/* Confirm edit button */}
+        {selectedMap && isEditMode && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '20px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000,
+              backgroundColor: '#27AE60',
+              color: 'white',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              border: 'none',
+              fontSize: '14px',
+              fontWeight: '600',
+              transition: 'all 0.2s ease'
+            }}
+            onClick={() => {
+              // Get current bounds, anchor points and calculated center position
+              const currentData = (window as any).getCurrentOverlayBounds?.();
+              if (currentData) {
+                onEditComplete(currentData.bounds);
+                
+                // Store anchor points and calculated center for the modal
+                (window as any).currentAnchorPoints = currentData.anchorPoints;
+                (window as any).currentCenterPosition = currentData.centerPosition;
+              }
+              
+              // This will be handled by the parent component
+              window.dispatchEvent(new CustomEvent('confirmMapEdit'));
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#229954';
+              e.currentTarget.style.transform = 'translateX(-50%) scale(1.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#27AE60';
+              e.currentTarget.style.transform = 'translateX(-50%) scale(1)';
+            }}
+            title="Confirmar edición"
+          >
+            ✅ Confirmar posición
+          </div>
+        )}
       </MapContainer>
     </div>
   );

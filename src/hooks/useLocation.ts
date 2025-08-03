@@ -307,7 +307,6 @@ export const useLocation = () => {
       
       // Retry on timeout (max 2 retries)
       if (err instanceof Error && err.message.includes('timed out') && retryCount < 2) {
-        console.log(`Retrying location request (attempt ${retryCount + 1}/2)`);
         setIsLoading(false);
         // Wait 2 seconds before retry
         await new Promise(resolve => setTimeout(resolve, 2000));
