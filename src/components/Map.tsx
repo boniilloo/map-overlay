@@ -241,6 +241,22 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
         marker.setLatLng(newCornerPositions[index] as [number, number]);
       });
     }
+    
+    // Actualizar la posición del overlay en tiempo real durante el arrastre
+    if (overlayRef.current) {
+      const element = overlayRef.current.getElement();
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        const mapRect = map.getContainer().getBoundingClientRect();
+        
+        setOverlayPosition({
+          top: rect.top - mapRect.top,
+          left: rect.left - mapRect.left,
+          width: rect.width,
+          height: rect.height
+        });
+      }
+    }
   };
 
   // Función para manejar el fin del arrastre de la imagen
@@ -256,6 +272,22 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
     // Restaurar el cursor y la selección de texto
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    
+    // Actualizar la posición del overlay después del arrastre
+    if (overlayRef.current) {
+      const element = overlayRef.current.getElement();
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        const mapRect = map.getContainer().getBoundingClientRect();
+        
+        setOverlayPosition({
+          top: rect.top - mapRect.top,
+          left: rect.left - mapRect.left,
+          width: rect.width,
+          height: rect.height
+        });
+      }
+    }
   };
 
   // useEffect para manejar eventos globales de mouse
@@ -291,6 +323,42 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
       document.removeEventListener('mouseup', handleGlobalMouseUp);
     };
   }, [isEditMode]);
+
+  // useEffect para actualizar la posición del overlay cuando cambie la vista del mapa
+  useEffect(() => {
+    if (!isEditMode || !overlayRef.current) return;
+
+    const updateOverlayPosition = () => {
+      if (overlayRef.current) {
+        const element = overlayRef.current.getElement();
+        if (element) {
+          const rect = element.getBoundingClientRect();
+          const mapRect = map.getContainer().getBoundingClientRect();
+          
+          setOverlayPosition({
+            top: rect.top - mapRect.top,
+            left: rect.left - mapRect.left,
+            width: rect.width,
+            height: rect.height
+          });
+        }
+      }
+    };
+
+    // Actualizar posición inicial
+    updateOverlayPosition();
+
+    // Escuchar cambios en la vista del mapa
+    map.on('move', updateOverlayPosition);
+    map.on('zoom', updateOverlayPosition);
+    map.on('resize', updateOverlayPosition);
+
+    return () => {
+      map.off('move', updateOverlayPosition);
+      map.off('zoom', updateOverlayPosition);
+      map.off('resize', updateOverlayPosition);
+    };
+  }, [isEditMode, map, overlayRef.current]);
 
   useEffect(() => {
     if (!map || !overlay || !map.getContainer()) return;
@@ -576,35 +644,29 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
   }
 
   // Renderizar el div personalizado para arrastre en modo de edición
-  if (isEditMode && overlayRef.current) {
-    const element = overlayRef.current.getElement();
-    if (element) {
-      const rect = element.getBoundingClientRect();
-      const mapRect = map.getContainer().getBoundingClientRect();
-      
-      return (
-        <div
-          ref={customOverlayRef}
-          style={{
-            position: 'absolute',
-            top: rect.top - mapRect.top,
-            left: rect.left - mapRect.left,
-            width: rect.width,
-            height: rect.height,
-            cursor: 'grab',
-            zIndex: 1001,
-            pointerEvents: 'auto',
-            border: '2px dashed #3A5F76',
-            backgroundColor: 'rgba(58, 95, 118, 0.1)',
-          }}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          title="Arrastra para mover el mapa"
-        />
-      );
-    }
+  if (isEditMode && overlayRef.current && overlayPosition.width > 0) {
+    return (
+      <div
+        ref={customOverlayRef}
+        style={{
+          position: 'absolute',
+          top: overlayPosition.top,
+          left: overlayPosition.left,
+          width: overlayPosition.width,
+          height: overlayPosition.height,
+          cursor: 'grab',
+          zIndex: 1001,
+          pointerEvents: 'auto',
+          border: '2px dashed #3A5F76',
+          backgroundColor: 'rgba(58, 95, 118, 0.1)',
+        }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        title="Arrastra para mover el mapa"
+      />
+    );
   }
 
   return null;
