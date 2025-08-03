@@ -17,6 +17,8 @@ function App() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingMap, setEditingMap] = useState<OverlayData | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [mapOpacity, setMapOpacity] = useState<number>(1);
+  const [mapRotation, setMapRotation] = useState<number>(0);
 
   const {
     location,
@@ -98,13 +100,38 @@ function App() {
   const handleMapEdit = (map: OverlayData) => {
     setSelectedMap(map);
     setEditingMap(map);
+    setMapOpacity(map.opacity || 1);
+    setMapRotation(map.rotation || 0);
     setIsEditMode(true);
+    setIsSidebarOpen(false); // Cerrar la sidebar al entrar en modo de edición
   };
 
   const handleClearMapSelection = () => {
     setSelectedMap(null);
     setIsEditMode(false);
     setEditingMap(null);
+    setMapOpacity(1);
+    setMapRotation(0);
+  };
+
+  const handleOpacityChange = (opacity: number) => {
+    setMapOpacity(opacity);
+    if (selectedMap) {
+      setSelectedMap({ ...selectedMap, opacity });
+    }
+    if (editingMap) {
+      setEditingMap({ ...editingMap, opacity });
+    }
+  };
+
+  const handleRotationChange = (rotation: number) => {
+    setMapRotation(rotation);
+    if (selectedMap) {
+      setSelectedMap({ ...selectedMap, rotation });
+    }
+    if (editingMap) {
+      setEditingMap({ ...editingMap, rotation });
+    }
   };
 
   const handleEditComplete = (bounds: L.LatLngBounds) => {
@@ -139,12 +166,22 @@ function App() {
       }
     };
 
+    const handleCancelEditEvent = () => {
+      setIsEditMode(false);
+      setEditingMap(null);
+      setSelectedMap(null);
+      setMapOpacity(1);
+      setMapRotation(0);
+    };
+
     window.addEventListener('clearMapSelection', handleClearEvent);
     window.addEventListener('confirmMapEdit', handleConfirmEditEvent);
+    window.addEventListener('cancelMapEdit', handleCancelEditEvent);
     
     return () => {
       window.removeEventListener('clearMapSelection', handleClearEvent);
       window.removeEventListener('confirmMapEdit', handleConfirmEditEvent);
+      window.removeEventListener('cancelMapEdit', handleCancelEditEvent);
     };
   }, [editingMap]);
 
@@ -183,97 +220,103 @@ function App() {
           selectedMap={selectedMap} 
           isEditMode={isEditMode}
           onEditComplete={handleEditComplete}
+          onOpacityChange={handleOpacityChange}
+          onRotationChange={handleRotationChange}
         />
 
-      {/* Menu Button */}
-      <button
-        onClick={() => setIsSidebarOpen(true)}
-        style={{
+      {/* Menu Button - hidden in edit mode */}
+      {!isEditMode && (
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          style={{
+            position: 'fixed',
+            top: '20px',
+            left: '20px',
+            zIndex: 1000,
+            backgroundColor: '#3A5F76',
+            color: 'white',
+            border: 'none',
+            borderRadius: '50%',
+            width: '50px',
+            height: '50px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            fontSize: '20px'
+          }}
+          title="Menu"
+        >
+          ☰
+        </button>
+      )}
+
+
+
+      {/* Simple GPS Status - hidden in edit mode */}
+      {!isEditMode && (
+        <div style={{
           position: 'fixed',
-          top: '20px',
+          bottom: '20px',
           left: '20px',
           zIndex: 1000,
-          backgroundColor: '#3A5F76',
+          backgroundColor: 'rgba(58, 95, 118, 0.9)',
           color: 'white',
-          border: 'none',
-          borderRadius: '50%',
-          width: '50px',
-          height: '50px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          fontSize: '20px'
-        }}
-        title="Menu"
-      >
-        ☰
-      </button>
-
-
-
-      {/* Simple GPS Status */}
-      <div style={{
-        position: 'fixed',
-        bottom: '20px',
-        left: '20px',
-        zIndex: 1000,
-        backgroundColor: 'rgba(58, 95, 118, 0.9)',
-        color: 'white',
-        padding: '12px 16px',
-        borderRadius: '8px',
-        fontFamily: 'Inter, sans-serif',
-        fontSize: '14px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div
-            style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              backgroundColor: location ? '#27AE60' : locationError ? '#E74C3C' : '#95A5A6'
-            }}
-          />
-          <span>
-            {locationLoading ? 'Getting location...' : 
-             locationError ? 'GPS Error' : 
-             location ? 'GPS Active' : 'GPS Off'}
-          </span>
-        </div>
-        {location && (
-          <div style={{ fontSize: '12px', marginTop: '4px' }}>
-            {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+          padding: '12px 16px',
+          borderRadius: '8px',
+          fontFamily: 'Inter, sans-serif',
+          fontSize: '14px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: location ? '#27AE60' : locationError ? '#E74C3C' : '#95A5A6'
+              }}
+            />
+            <span>
+              {locationLoading ? 'Getting location...' : 
+               locationError ? 'GPS Error' : 
+               location ? 'GPS Active' : 'GPS Off'}
+            </span>
           </div>
-        )}
-        {locationError && (
-          <button
-            onClick={handleRequestLocation}
-            style={{
-              background: 'none',
-              border: '1px solid #E74C3C',
-              color: '#E74C3C',
-              borderRadius: '4px',
-              padding: '4px 8px',
-              fontSize: '12px',
-              cursor: 'pointer',
-              marginTop: '4px',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#E74C3C';
-              e.currentTarget.style.color = 'white';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'none';
-              e.currentTarget.style.color = '#E74C3C';
-            }}
-          >
-            🔄 Reintentar
-          </button>
-        )}
-      </div>
+          {location && (
+            <div style={{ fontSize: '12px', marginTop: '4px' }}>
+              {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+            </div>
+          )}
+          {locationError && (
+            <button
+              onClick={handleRequestLocation}
+              style={{
+                background: 'none',
+                border: '1px solid #E74C3C',
+                color: '#E74C3C',
+                borderRadius: '4px',
+                padding: '4px 8px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                marginTop: '4px',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#E74C3C';
+                e.currentTarget.style.color = 'white';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'none';
+                e.currentTarget.style.color = '#E74C3C';
+              }}
+            >
+              🔄 Reintentar
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Simple Compass */}
       {compass && (

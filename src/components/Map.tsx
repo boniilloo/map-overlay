@@ -17,6 +17,8 @@ interface MapProps {
   selectedMap: OverlayData | null;
   isEditMode: boolean;
   onEditComplete: (bounds: L.LatLngBounds) => void;
+  onOpacityChange?: (opacity: number) => void;
+  onRotationChange?: (rotation: number) => void;
 }
 
 // Component to handle map center updates
@@ -320,13 +322,13 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
       ];
     }
 
-    try {
-      // Create new image overlay
-      const imageOverlay = L.imageOverlay(overlay.imageUrl, bounds, {
-        opacity: overlay.opacity,
-        interactive: true,
-        bubblingMouseEvents: false // Evitar que los eventos se propaguen al mapa
-      });
+          try {
+        // Create new image overlay
+        const imageOverlay = L.imageOverlay(overlay.imageUrl, bounds, {
+          opacity: overlay.opacity || 1,
+          interactive: true,
+          bubblingMouseEvents: false // Evitar que los eventos se propaguen al mapa
+        });
 
       // Add error handling for image loading
       const element = imageOverlay.getElement();
@@ -344,10 +346,11 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
       }
 
       // Apply rotation if needed
-      if (overlay.rotation !== 0) {
+      if (overlay.rotation !== undefined && overlay.rotation !== 0) {
         const element = imageOverlay.getElement();
         if (element) {
-          element.style.transform += ` rotate(${overlay.rotation}deg)`;
+          const currentTransform = element.style.transform;
+          element.style.transform = `${currentTransform} rotate(${overlay.rotation}deg)`;
         }
       }
 
@@ -423,6 +426,23 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
             bubblingMouseEvents: false // Evitar que los eventos se propaguen al mapa
           });
 
+          centerMarker.on('dragstart', () => {
+            if (overlayRef.current) {
+              const element = overlayRef.current.getElement();
+              if (element) {
+                // Get current rotation from the element's transform
+                const currentTransform = element.style.transform;
+                const rotationMatch = currentTransform.match(/rotate\(([^)]+)deg\)/);
+                const currentRotation = rotationMatch ? parseFloat(rotationMatch[1]) : 0;
+                
+                if (currentRotation !== 0) {
+                  // Store the current rotation to maintain it during drag
+                  (element as any)._currentRotation = currentRotation;
+                }
+              }
+            }
+          });
+
           centerMarker.on('drag', () => {
             if (overlayRef.current) {
               const newCenter = centerMarker.getLatLng();
@@ -454,6 +474,26 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
               cornerMarkersRef.current.forEach((marker, index) => {
                 marker.setLatLng(newCornerPositions[index] as [number, number]);
               });
+
+              // Apply rotation during drag
+              const element = overlayRef.current.getElement();
+              if (element) {
+                const storedRotation = (element as any)._currentRotation;
+                if (storedRotation && storedRotation !== 0) {
+                  const currentTransform = element.style.transform;
+                  const transformWithoutRotation = currentTransform.replace(/rotate\([^)]*\)/g, '').trim();
+                  element.style.transform = `${transformWithoutRotation} rotate(${storedRotation}deg)`;
+                }
+              }
+            }
+          });
+
+          centerMarker.on('dragend', () => {
+            if (overlayRef.current) {
+              const element = overlayRef.current.getElement();
+              if (element) {
+                applyRotationToElement(element);
+              }
             }
           });
 
@@ -532,6 +572,23 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
               iconSize: [16, 16],
               iconAnchor: [8, 8]
             })
+          });
+
+          marker.on('dragstart', () => {
+            if (overlayRef.current) {
+              const element = overlayRef.current.getElement();
+              if (element) {
+                // Get current rotation from the element's transform
+                const currentTransform = element.style.transform;
+                const rotationMatch = currentTransform.match(/rotate\(([^)]+)deg\)/);
+                const currentRotation = rotationMatch ? parseFloat(rotationMatch[1]) : 0;
+                
+                if (currentRotation !== 0) {
+                  // Store the current rotation to maintain it during drag
+                  (element as any)._currentRotation = currentRotation;
+                }
+              }
+            }
           });
 
           marker.on('drag', () => {
@@ -620,6 +677,26 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
                   centerMarkerRef.current.setIcon(newIcon);
                 }
               }
+
+              // Apply rotation during corner drag
+              const element = overlayRef.current.getElement();
+              if (element) {
+                const storedRotation = (element as any)._currentRotation;
+                if (storedRotation && storedRotation !== 0) {
+                  const currentTransform = element.style.transform;
+                  const transformWithoutRotation = currentTransform.replace(/rotate\([^)]*\)/g, '').trim();
+                  element.style.transform = `${transformWithoutRotation} rotate(${storedRotation}deg)`;
+                }
+              }
+            }
+          });
+
+          marker.on('dragend', () => {
+            if (overlayRef.current) {
+              const element = overlayRef.current.getElement();
+              if (element) {
+                applyRotationToElement(element);
+              }
             }
           });
 
@@ -658,7 +735,67 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
       });
       cornerMarkersRef.current = [];
     };
-  }, [map, overlay, isEditMode]);
+  }, [map, overlay.imageUrl, overlay.anchorPoints, overlay.position, overlay.scale, isEditMode]);
+
+  // Update opacity when it changes
+  useEffect(() => {
+    if (overlayRef.current && overlay.opacity !== undefined) {
+      overlayRef.current.setOpacity(overlay.opacity);
+    }
+  }, [overlay.opacity]);
+
+  // Update rotation when it changes
+  useEffect(() => {
+    if (overlayRef.current && overlay.rotation !== undefined) {
+      const element = overlayRef.current.getElement();
+      if (element) {
+        // Get the current transform and remove any existing rotation
+        const currentTransform = element.style.transform;
+        const transformWithoutRotation = currentTransform.replace(/rotate\([^)]*\)/g, '').trim();
+        
+        // Apply the new rotation
+        if (overlay.rotation !== 0) {
+          element.style.transform = `${transformWithoutRotation} rotate(${overlay.rotation}deg)`;
+        } else {
+          element.style.transform = transformWithoutRotation;
+        }
+      }
+    }
+  }, [overlay.rotation]);
+
+  // Listen for map zoom and move events to maintain rotation
+  useEffect(() => {
+    if (!map || !overlayRef.current) return;
+
+    const maintainRotation = () => {
+      if (overlayRef.current && overlay.rotation !== undefined && overlay.rotation !== 0) {
+        const element = overlayRef.current.getElement();
+        if (element) {
+          applyRotationToElement(element);
+        }
+      }
+    };
+
+    map.on('zoomend', maintainRotation);
+    map.on('moveend', maintainRotation);
+
+    return () => {
+      map.off('zoomend', maintainRotation);
+      map.off('moveend', maintainRotation);
+    };
+  }, [map, overlay.rotation]);
+
+  // Function to apply rotation to overlay element
+  const applyRotationToElement = (element: HTMLElement) => {
+    if (overlay.rotation !== undefined && overlay.rotation !== 0) {
+      // Use requestAnimationFrame to ensure Leaflet's transforms are applied first
+      requestAnimationFrame(() => {
+        const currentTransform = element.style.transform;
+        const transformWithoutRotation = currentTransform.replace(/rotate\([^)]*\)/g, '').trim();
+        element.style.transform = `${transformWithoutRotation} rotate(${overlay.rotation}deg)`;
+      });
+    }
+  };
 
   // Show error message if image failed to load
   if (imageError) {
@@ -740,7 +877,7 @@ const CurrentLocationMarker: React.FC<{ currentLocation: GPSLocation | null }> =
   );
 };
 
-const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onEditComplete }) => {
+const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onEditComplete, onOpacityChange, onRotationChange }) => {
   const [mapCenter, setMapCenter] = useState<[number, number]>([40.4168, -3.7038]); // Madrid default
   const [zoom] = useState(13);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -769,11 +906,27 @@ const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onE
   };
 
   return (
-    <div style={{ height: '100vh', width: '100vw' }}>
+    <div style={{ 
+      height: '100vh', 
+      width: '100vw',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
+      <style>
+        {isEditMode && `
+          .leaflet-control-zoom {
+            left: auto !important;
+            right: 60px !important;
+          }
+        `}
+      </style>
       <MapContainer
         center={mapCenter}
         zoom={zoom}
-        style={{ height: '100%', width: '100%' }}
+                    style={{ 
+              height: isEditMode ? 'calc(100vh - 80px)' : '100%', 
+              width: '100%' 
+            }}
         zoomControl={true}
         whenReady={handleMapReady}
       >
@@ -783,8 +936,8 @@ const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onE
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         
-                {/* Current location marker */}
-        <CurrentLocationMarker currentLocation={currentLocation} />
+                {/* Current location marker - hidden in edit mode */}
+        {!isEditMode && <CurrentLocationMarker currentLocation={currentLocation} />}
         
         {/* Selected map overlay */}
         {selectedMap && isMapReady && (
@@ -826,8 +979,10 @@ const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onE
         {/* Map updater component */}
         {isMapReady && <MapUpdater center={mapCenter} />}
         
-        {/* Center location button */}
-        <CenterLocationButton currentLocation={currentLocation} />
+        {/* Center location button - hidden in edit mode */}
+        {!isEditMode && <CenterLocationButton currentLocation={currentLocation} />}
+        
+
         
         {/* Clear map selection button */}
         {selectedMap && !isEditMode && (
@@ -867,54 +1022,205 @@ const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onE
           </div>
         )}
 
-        {/* Confirm edit button */}
-        {selectedMap && isEditMode && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '20px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 1000,
-              backgroundColor: '#27AE60',
-              color: 'white',
-              padding: '12px 16px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-              border: 'none',
-              fontSize: '14px',
-              fontWeight: '600',
-              transition: 'all 0.2s ease'
-            }}
-            onClick={() => {
-              // Get current bounds, anchor points and calculated center position
-              const currentData = (window as any).getCurrentOverlayBounds?.();
-              if (currentData) {
-                onEditComplete(currentData.bounds);
-                
-                // Store anchor points and calculated center for the modal
-                (window as any).currentAnchorPoints = currentData.anchorPoints;
-                (window as any).currentCenterPosition = currentData.centerPosition;
-              }
-              
-              // This will be handled by the parent component
-              window.dispatchEvent(new CustomEvent('confirmMapEdit'));
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#229954';
-              e.currentTarget.style.transform = 'translateX(-50%) scale(1.05)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#27AE60';
-              e.currentTarget.style.transform = 'translateX(-50%) scale(1)';
-            }}
-            title="Confirmar edición"
-          >
-            ✅ Confirmar posición
-          </div>
-        )}
+
       </MapContainer>
+      
+      {/* Edit mode bottom bar with buttons and opacity slider - outside map container */}
+      {selectedMap && isEditMode && (
+        <div
+          style={{
+            backgroundColor: 'white',
+            padding: '16px 20px',
+            boxShadow: '0 -4px 12px rgba(0,0,0,0.1)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            height: '80px',
+            boxSizing: 'border-box'
+          }}
+        >
+          {/* Left side - Sliders */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}>
+            {/* Opacity slider */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <span style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#333',
+                minWidth: '80px'
+              }}>
+                Transparencia:
+              </span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                defaultValue={selectedMap.opacity ? Math.round(selectedMap.opacity * 100) : 100}
+                style={{
+                  width: '200px',
+                  height: '6px',
+                  borderRadius: '3px',
+                  background: '#ddd',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+                onChange={(e) => {
+                  const opacity = parseInt(e.target.value) / 100;
+                  if (onOpacityChange) {
+                    onOpacityChange(opacity);
+                  }
+                }}
+              />
+              <span style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#333',
+                minWidth: '40px',
+                textAlign: 'center'
+              }}>
+                {selectedMap.opacity ? Math.round(selectedMap.opacity * 100) : 100}%
+              </span>
+            </div>
+            
+            {/* Rotation slider */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <span style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#333',
+                minWidth: '80px'
+              }}>
+                Rotación:
+              </span>
+              <input
+                type="range"
+                min="-10"
+                max="10"
+                defaultValue={selectedMap.rotation || 0}
+                style={{
+                  width: '200px',
+                  height: '6px',
+                  borderRadius: '3px',
+                  background: '#ddd',
+                  outline: 'none',
+                  cursor: 'pointer'
+                }}
+                onChange={(e) => {
+                  const rotation = parseInt(e.target.value);
+                  if (onRotationChange) {
+                    onRotationChange(rotation);
+                  }
+                }}
+              />
+              <span style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#333',
+                minWidth: '40px',
+                textAlign: 'center'
+              }}>
+                {selectedMap.rotation || 0}°
+              </span>
+            </div>
+          </div>
+          
+          {/* Right side - Buttons */}
+          <div style={{
+            display: 'flex',
+            gap: '16px'
+          }}>
+            <button
+              style={{
+                backgroundColor: '#E74C3C',
+                color: 'white',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                border: 'none',
+                fontSize: '16px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              onClick={() => {
+                // This will be handled by the parent component
+                window.dispatchEvent(new CustomEvent('cancelMapEdit'));
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#C53030';
+                e.currentTarget.style.transform = 'scale(1.05)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#E74C3C';
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              title="Cancelar edición"
+            >
+              ❌
+            </button>
+            
+            <button
+              style={{
+                backgroundColor: '#27AE60',
+                color: 'white',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                border: 'none',
+                fontSize: '16px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              onClick={() => {
+                // Get current bounds, anchor points and calculated center position
+                const currentData = (window as any).getCurrentOverlayBounds?.();
+                if (currentData) {
+                  onEditComplete(currentData.bounds);
+                  
+                  // Store anchor points and calculated center for the modal
+                  (window as any).currentAnchorPoints = currentData.anchorPoints;
+                  (window as any).currentCenterPosition = currentData.centerPosition;
+                }
+                
+                // This will be handled by the parent component
+                window.dispatchEvent(new CustomEvent('confirmMapEdit'));
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#229954';
+                e.currentTarget.style.transform = 'scale(1.05)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#27AE60';
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              title="Confirmar edición"
+            >
+              ✅
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
