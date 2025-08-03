@@ -104,13 +104,10 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
   const overlayRef = useRef<L.ImageOverlay | null>(null);
   const cornerMarkersRef = useRef<L.Marker[]>([]);
   const anchorPointMarkersRef = useRef<L.Marker[]>([]);
+  const centerMarkerRef = useRef<L.Marker | null>(null);
   const [imageError, setImageError] = useState(false);
   
-  // Variables para el nuevo sistema de arrastre
-  const isDraggingRef = useRef(false);
-  const dragStartRef = useRef<{ x: number; y: number; bounds: L.LatLngBounds } | null>(null);
-  const customOverlayRef = useRef<HTMLDivElement | null>(null);
-  const [overlayPosition, setOverlayPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
+
   
 
 
@@ -157,13 +154,14 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
   // Expose getCurrentBounds globally for the confirm button
   (window as any).getCurrentOverlayBounds = getCurrentBounds;
 
-  // useEffect para deshabilitar interacciones del mapa en modo de edición
+  // useEffect para manejar interacciones del mapa en modo de edición
   useEffect(() => {
     if (isEditMode) {
-      map.dragging.disable();
-      map.scrollWheelZoom.disable();
-      map.touchZoom.disable();
-      map.doubleClickZoom.disable();
+      // Habilitar todas las interacciones del mapa en modo de edición
+      map.dragging.enable();
+      map.scrollWheelZoom.enable();
+      map.touchZoom.enable();
+      map.doubleClickZoom.enable();
     } else {
       map.dragging.enable();
       map.scrollWheelZoom.enable();
@@ -180,185 +178,82 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
     };
   }, [isEditMode, map]);
 
-  // Función para manejar el inicio del arrastre de la imagen
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!isEditMode) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
-    
-    isDraggingRef.current = true;
-    dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      bounds: overlayRef.current?.getBounds() || L.latLngBounds([0, 0], [0, 0])
-    };
-    
-    // Cambiar el cursor
-    document.body.style.cursor = 'grabbing';
-    document.body.style.userSelect = 'none';
-  };
-
-  // Función para manejar el arrastre de la imagen
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDraggingRef.current || !dragStartRef.current || !overlayRef.current) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    
-    // Convertir el desplazamiento en píxeles a coordenadas geográficas
-    const startPoint = map.containerPointToLatLng([0, 0]);
-    const endPoint = map.containerPointToLatLng([dx, dy]);
-    
-    const latOffset = endPoint.lat - startPoint.lat;
-    const lngOffset = endPoint.lng - startPoint.lng;
-    
-    // Obtener los bounds originales
-    const originalBounds = dragStartRef.current.bounds;
-    
-    // Crear nuevos bounds desplazados
-    const newBounds = L.latLngBounds(
-      [originalBounds.getSouthWest().lat + latOffset, originalBounds.getSouthWest().lng + lngOffset],
-      [originalBounds.getNorthEast().lat + latOffset, originalBounds.getNorthEast().lng + lngOffset]
-    );
-    
-    // Actualizar la posición de la imagen
-    overlayRef.current.setBounds(newBounds);
-    
-    // Actualizar la posición de los marcadores de esquina
-    if (cornerMarkersRef.current.length > 0) {
-      const newCornerPositions = [
-        [newBounds.getSouthWest().lat, newBounds.getSouthWest().lng], // Southwest
-        [newBounds.getSouthWest().lat, newBounds.getNorthEast().lng], // Southeast
-        [newBounds.getNorthEast().lat, newBounds.getNorthEast().lng], // Northeast
-        [newBounds.getNorthEast().lat, newBounds.getSouthWest().lng]  // Northwest
-      ];
-      
-      cornerMarkersRef.current.forEach((marker, index) => {
-        marker.setLatLng(newCornerPositions[index] as [number, number]);
-      });
-    }
-    
-    // Actualizar la posición del overlay en tiempo real durante el arrastre
-    if (overlayRef.current) {
-      const element = overlayRef.current.getElement();
-      if (element) {
-        const rect = element.getBoundingClientRect();
-        const mapRect = map.getContainer().getBoundingClientRect();
-        
-        setOverlayPosition({
-          top: rect.top - mapRect.top,
-          left: rect.left - mapRect.left,
-          width: rect.width,
-          height: rect.height
-        });
-      }
-    }
-  };
-
-  // Función para manejar el fin del arrastre de la imagen
-  const handleMouseUp = (e: React.MouseEvent) => {
-    if (!isDraggingRef.current) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
-    
-    isDraggingRef.current = false;
-    dragStartRef.current = null;
-    
-    // Restaurar el cursor y la selección de texto
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-    
-    // Actualizar la posición del overlay después del arrastre
-    if (overlayRef.current) {
-      const element = overlayRef.current.getElement();
-      if (element) {
-        const rect = element.getBoundingClientRect();
-        const mapRect = map.getContainer().getBoundingClientRect();
-        
-        setOverlayPosition({
-          top: rect.top - mapRect.top,
-          left: rect.left - mapRect.left,
-          width: rect.width,
-          height: rect.height
-        });
-      }
-    }
-  };
-
-  // useEffect para manejar eventos globales de mouse
+  // useEffect para actualizar el marcador central cuando cambie el zoom o la vista del mapa
   useEffect(() => {
-    if (!isEditMode) return;
+    if (!isEditMode || !centerMarkerRef.current) return;
 
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (isDraggingRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Convertir el evento a React.MouseEvent para handleMouseMove
-        const reactEvent = e as any;
-        handleMouseMove(reactEvent);
-      }
-    };
-
-    const handleGlobalMouseUp = (e: MouseEvent) => {
-      if (isDraggingRef.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Convertir el evento a React.MouseEvent para handleMouseUp
-        const reactEvent = e as any;
-        handleMouseUp(reactEvent);
-      }
-    };
-
-    // Agregar eventos globales para manejar el arrastre fuera del elemento
-    document.addEventListener('mousemove', handleGlobalMouseMove);
-    document.addEventListener('mouseup', handleGlobalMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleGlobalMouseMove);
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
-    };
-  }, [isEditMode]);
-
-  // useEffect para actualizar la posición del overlay cuando cambie la vista del mapa
-  useEffect(() => {
-    if (!isEditMode || !overlayRef.current) return;
-
-    const updateOverlayPosition = () => {
-      if (overlayRef.current) {
-        const element = overlayRef.current.getElement();
-        if (element) {
-          const rect = element.getBoundingClientRect();
-          const mapRect = map.getContainer().getBoundingClientRect();
+    const updateCenterMarker = () => {
+      if (centerMarkerRef.current) {
+        // Si overlayRef está disponible, actualizar posición y tamaño
+        if (overlayRef.current) {
+          const currentBounds = overlayRef.current.getBounds();
+          const newImageCenterLat = (currentBounds.getSouthWest().lat + currentBounds.getNorthEast().lat) / 2;
+          const newImageCenterLng = (currentBounds.getSouthWest().lng + currentBounds.getNorthEast().lng) / 2;
+          centerMarkerRef.current.setLatLng([newImageCenterLat, newImageCenterLng]);
           
-          setOverlayPosition({
-            top: rect.top - mapRect.top,
-            left: rect.left - mapRect.left,
-            width: rect.width,
-            height: rect.height
+          // Update center marker icon size to match new image size
+          const imageElement = overlayRef.current.getElement();
+          if (imageElement) {
+            const rect = imageElement.getBoundingClientRect();
+            const newIcon = L.divIcon({
+              className: 'center-drag-marker',
+              html: `<div style="
+                width: ${rect.width}px;
+                height: ${rect.height}px;
+                background: transparent;
+                border: 2px dashed #3A5F76;
+                border-radius: 8px;
+                cursor: move;
+                opacity: 0.3;
+                pointer-events: auto;
+              "></div>`,
+              iconSize: [rect.width, rect.height],
+              iconAnchor: [rect.width / 2, rect.height / 2]
+            });
+            centerMarkerRef.current.setIcon(newIcon);
+          }
+        } else {
+          // Si overlayRef no está disponible, solo actualizar el tamaño del icono basado en el zoom
+          const currentZoom = map.getZoom();
+          const baseSize = 100; // Tamaño base
+          const zoomFactor = Math.pow(1.5, currentZoom - 10); // Factor de zoom
+          const newSize = Math.max(50, Math.min(300, baseSize * zoomFactor)); // Limitar tamaño
+          
+          const newIcon = L.divIcon({
+            className: 'center-drag-marker',
+            html: `<div style="
+              width: ${newSize}px;
+              height: ${newSize}px;
+              background: transparent;
+              border: 2px dashed #3A5F76;
+              border-radius: 8px;
+              cursor: move;
+              opacity: 0.3;
+              pointer-events: auto;
+            "></div>`,
+            iconSize: [newSize, newSize],
+            iconAnchor: [newSize / 2, newSize / 2]
           });
+          centerMarkerRef.current.setIcon(newIcon);
         }
       }
     };
 
-    // Actualizar posición inicial
-    updateOverlayPosition();
-
-    // Escuchar cambios en la vista del mapa
-    map.on('move', updateOverlayPosition);
-    map.on('zoom', updateOverlayPosition);
-    map.on('resize', updateOverlayPosition);
+    // Escuchar eventos de zoom y movimiento para actualizar el marcador
+    map.on('zoomend', updateCenterMarker);
+    map.on('moveend', updateCenterMarker);
 
     return () => {
-      map.off('move', updateOverlayPosition);
-      map.off('zoom', updateOverlayPosition);
-      map.off('resize', updateOverlayPosition);
+      map.off('zoomend', updateCenterMarker);
+      map.off('moveend', updateCenterMarker);
     };
-  }, [isEditMode, map, overlayRef.current]);
+  }, [isEditMode, centerMarkerRef.current, map]);
+
+
+
+
+
+
 
   useEffect(() => {
     if (!map || !overlay || !map.getContainer()) return;
@@ -383,6 +278,16 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
       }
     });
     cornerMarkersRef.current = [];
+
+    // Remove center marker
+    if (centerMarkerRef.current) {
+      try {
+        map.removeLayer(centerMarkerRef.current);
+      } catch (error) {
+        console.error('[Overlay] Error removing center marker:', error);
+      }
+      centerMarkerRef.current = null;
+    }
 
     // Remove anchor point markers
     anchorPointMarkersRef.current.forEach(marker => {
@@ -454,6 +359,7 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
           element.style.boxShadow = '0 0 15px rgba(58, 95, 118, 0.7)';
           element.style.borderRadius = '4px';
           element.style.zIndex = '1000';
+          element.style.cursor = 'grab';
         }
       }
 
@@ -471,7 +377,7 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
 
       
 
-              // Add corner markers if in edit mode
+              // Add corner markers and center drag marker if in edit mode
         if (isEditMode) {
           const boundsArray = bounds as [[number, number], [number, number]];
           const cornerPositions = [
@@ -480,6 +386,122 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
             [boundsArray[1][0], boundsArray[1][1]], // Northeast
             [boundsArray[1][0], boundsArray[0][1]]  // Northwest
           ];
+
+          // Add center drag marker (invisible but draggable)
+          const centerLat = (boundsArray[0][0] + boundsArray[1][0]) / 2;
+          const centerLng = (boundsArray[0][1] + boundsArray[1][1]) / 2;
+          
+          // Calcular el tamaño de la imagen en píxeles para el marcador
+          const imageElement = imageOverlay.getElement();
+          let imageWidth = 100;
+          let imageHeight = 100;
+          
+          if (imageElement) {
+            const rect = imageElement.getBoundingClientRect();
+            imageWidth = rect.width;
+            imageHeight = rect.height;
+          }
+          
+          const centerMarker = L.marker([centerLat, centerLng], {
+            draggable: true,
+            icon: L.divIcon({
+              className: 'center-drag-marker',
+              html: `<div style="
+                width: ${imageWidth}px;
+                height: ${imageHeight}px;
+                background: transparent;
+                border: 2px dashed #3A5F76;
+                border-radius: 8px;
+                cursor: move;
+                opacity: 0.3;
+                pointer-events: auto;
+              "></div>`,
+              iconSize: [imageWidth, imageHeight],
+              iconAnchor: [imageWidth / 2, imageHeight / 2]
+            }),
+            interactive: true,
+            bubblingMouseEvents: false // Evitar que los eventos se propaguen al mapa
+          });
+
+          centerMarker.on('drag', () => {
+            if (overlayRef.current) {
+              const newCenter = centerMarker.getLatLng();
+              const currentBounds = overlayRef.current.getBounds();
+              
+              // Calcular el centro actual de la imagen
+              const currentCenterLat = (currentBounds.getSouthWest().lat + currentBounds.getNorthEast().lat) / 2;
+              const currentCenterLng = (currentBounds.getSouthWest().lng + currentBounds.getNorthEast().lng) / 2;
+              
+              // Calcular la diferencia desde el centro actual
+              const latDiff = newCenter.lat - currentCenterLat;
+              const lngDiff = newCenter.lng - currentCenterLng;
+              
+              const newBounds = L.latLngBounds(
+                [currentBounds.getSouthWest().lat + latDiff, currentBounds.getSouthWest().lng + lngDiff],
+                [currentBounds.getNorthEast().lat + latDiff, currentBounds.getNorthEast().lng + lngDiff]
+              );
+              
+              overlayRef.current.setBounds(newBounds);
+              
+              // Update corner markers
+              const newCornerPositions = [
+                [newBounds.getSouthWest().lat, newBounds.getSouthWest().lng], // Southwest
+                [newBounds.getSouthWest().lat, newBounds.getNorthEast().lng], // Southeast
+                [newBounds.getNorthEast().lat, newBounds.getNorthEast().lng], // Northeast
+                [newBounds.getNorthEast().lat, newBounds.getSouthWest().lng]  // Northwest
+              ];
+              
+              cornerMarkersRef.current.forEach((marker, index) => {
+                marker.setLatLng(newCornerPositions[index] as [number, number]);
+              });
+            }
+          });
+
+          centerMarker.addTo(map);
+          centerMarkerRef.current = centerMarker;
+          
+          // Agregar eventos para manejar la interacción con el mapa
+          centerMarker.on('mousedown', (e) => {
+            // Solo capturar eventos cuando se hace clic en el marcador
+            e.originalEvent.stopPropagation();
+          });
+          
+          centerMarker.on('click', (e) => {
+            // Prevenir que el clic se propague al mapa
+            e.originalEvent.stopPropagation();
+          });
+          
+          // Update center marker position and size after drag ends
+          centerMarker.on('dragend', () => {
+            if (overlayRef.current && centerMarkerRef.current) {
+              const currentBounds = overlayRef.current.getBounds();
+              const newImageCenterLat = (currentBounds.getSouthWest().lat + currentBounds.getNorthEast().lat) / 2;
+              const newImageCenterLng = (currentBounds.getSouthWest().lng + currentBounds.getNorthEast().lng) / 2;
+              centerMarkerRef.current.setLatLng([newImageCenterLat, newImageCenterLng]);
+              
+              // Update center marker icon size to match new image size
+              const imageElement = overlayRef.current.getElement();
+              if (imageElement) {
+                const rect = imageElement.getBoundingClientRect();
+                const newIcon = L.divIcon({
+                  className: 'center-drag-marker',
+                  html: `<div style="
+                    width: ${rect.width}px;
+                    height: ${rect.height}px;
+                    background: transparent;
+                    border: 2px dashed #3A5F76;
+                    border-radius: 8px;
+                    cursor: move;
+                    opacity: 0.3;
+                    pointer-events: auto;
+                  "></div>`,
+                  iconSize: [rect.width, rect.height],
+                  iconAnchor: [rect.width / 2, rect.height / 2]
+                });
+                centerMarkerRef.current.setIcon(newIcon);
+              }
+            }
+          });
 
         cornerPositions.forEach((pos, index) => {
           const marker = L.marker(pos as [number, number], {
@@ -569,6 +591,35 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
                   marker.setLatLng(newPos as [number, number]);
                 }
               });
+              
+              // Update center marker position and size
+              if (centerMarkerRef.current) {
+                const newImageCenterLat = (newBounds.getSouthWest().lat + newBounds.getNorthEast().lat) / 2;
+                const newImageCenterLng = (newBounds.getSouthWest().lng + newBounds.getNorthEast().lng) / 2;
+                centerMarkerRef.current.setLatLng([newImageCenterLat, newImageCenterLng]);
+                
+                // Update center marker icon size to match new image size
+                const imageElement = overlayRef.current.getElement();
+                if (imageElement) {
+                  const rect = imageElement.getBoundingClientRect();
+                  const newIcon = L.divIcon({
+                    className: 'center-drag-marker',
+                    html: `<div style="
+                      width: ${rect.width}px;
+                      height: ${rect.height}px;
+                      background: transparent;
+                      border: 2px dashed #3A5F76;
+                      border-radius: 8px;
+                      cursor: move;
+                      opacity: 0.3;
+                      pointer-events: auto;
+                    "></div>`,
+                    iconSize: [rect.width, rect.height],
+                    iconAnchor: [rect.width / 2, rect.height / 2]
+                  });
+                  centerMarkerRef.current.setIcon(newIcon);
+                }
+              }
             }
           });
 
@@ -643,31 +694,7 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
     );
   }
 
-  // Renderizar el div personalizado para arrastre en modo de edición
-  if (isEditMode && overlayRef.current && overlayPosition.width > 0) {
-    return (
-      <div
-        ref={customOverlayRef}
-        style={{
-          position: 'absolute',
-          top: overlayPosition.top,
-          left: overlayPosition.left,
-          width: overlayPosition.width,
-          height: overlayPosition.height,
-          cursor: 'grab',
-          zIndex: 1001,
-          pointerEvents: 'auto',
-          border: '2px dashed #3A5F76',
-          backgroundColor: 'rgba(58, 95, 118, 0.1)',
-        }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        title="Arrastra para mover el mapa"
-      />
-    );
-  }
+
 
   return null;
 };
