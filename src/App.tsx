@@ -4,8 +4,11 @@ import { useLocation } from './hooks/useLocation';
 import LoginModal from './components/LoginModal';
 import Sidebar from './components/Sidebar';
 import EditMapModal from './components/EditMapModal';
+import ReferencePointsModal from './components/ReferencePointsModal';
 import { authService, AuthUser } from './services/auth';
 import { OverlayData } from './types';
+import { validateReferencePoints } from './utils/coordinateTransform';
+import { fitSimilarityFromTwoPairs, computeOverlayCorners } from './utils/geoTransform';
 import './App.css';
 
 function App() {
@@ -17,6 +20,8 @@ function App() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingMap, setEditingMap] = useState<OverlayData | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isReferencePointsModalOpen, setIsReferencePointsModalOpen] = useState(false);
+  const [mapReference, setMapReference] = useState<L.Map | null>(null);
   const [mapOpacity, setMapOpacity] = useState<number>(1);
   const [mapRotation, setMapRotation] = useState<number>(0);
 
@@ -152,6 +157,121 @@ function App() {
     }
   };
 
+  const handleReferencePointsClick = () => {
+    setIsReferencePointsModalOpen(true);
+  };
+
+  const handleMapReady = (map: L.Map) => {
+    setMapReference(map);
+  };
+
+  const handleReferencePointsSelected = (imagePoints: any[], mapPoints: any[]) => {
+    try {
+      console.log('Puntos de imagen:', imagePoints);
+      console.log('Puntos de mapa:', mapPoints);
+      
+      // Validate points
+      if (!validateReferencePoints(imagePoints, mapPoints)) {
+        alert('Los puntos de referencia no son válidos. Asegúrate de que estén bien separados.');
+        return;
+      }
+
+      // Get image dimensions from the actual image first
+      const img = new Image();
+      img.onload = () => {
+        const imageWidth = img.naturalWidth;
+        const imageHeight = img.naturalHeight;
+        
+        console.log('Dimensiones de imagen:', imageWidth, imageHeight);
+        
+        // Usar la referencia del mapa almacenada
+        if (!mapReference) {
+          alert('No se pudo obtener la referencia del mapa.');
+          return;
+        }
+        
+        const map = mapReference;
+        
+        // Calcular la transformación de semejanza
+        const transform = fitSimilarityFromTwoPairs(
+          map,
+          { x: imagePoints[0].x, y: imagePoints[0].y },
+          { x: imagePoints[1].x, y: imagePoints[1].y },
+          { lat: mapPoints[0].lat, lng: mapPoints[0].lng },
+          { lat: mapPoints[1].lat, lng: mapPoints[1].lng },
+          { width: imageWidth, height: imageHeight }
+        );
+        
+        console.log('Transformación de semejanza calculada:', transform);
+        
+        // Calcular las esquinas del overlay
+        const corners = computeOverlayCorners(
+          map,
+          transform,
+          { width: imageWidth, height: imageHeight }
+        );
+        
+        console.log('Esquinas calculadas:', corners);
+        
+        // Calcular el centro como promedio de las esquinas
+        const newCenter = {
+          lat: (corners.TL.lat + corners.TR.lat + corners.BL.lat + corners.BR.lat) / 4,
+          lng: (corners.TL.lng + corners.TR.lng + corners.BL.lng + corners.BR.lng) / 4
+        };
+        
+        console.log('Nuevo centro:', newCenter);
+        
+        // Update the map with new position and anchor points
+        if (selectedMap) {
+          const updatedMap = {
+            ...selectedMap,
+            position: newCenter,
+            anchorPoints: {
+              topLeft: { lat: corners.TL.lat, lng: corners.TL.lng },
+              topRight: { lat: corners.TR.lat, lng: corners.TR.lng },
+              bottomLeft: { lat: corners.BL.lat, lng: corners.BL.lng },
+              bottomRight: { lat: corners.BR.lat, lng: corners.BR.lng }
+            },
+            // Mantener la rotación actual si existe
+            rotation: selectedMap.rotation || 0
+          };
+          
+          setSelectedMap(updatedMap);
+          if (editingMap) {
+            setEditingMap(updatedMap);
+          }
+          
+          // Store the transformation for the edit modal
+          (window as any).currentAnchorPoints = {
+            topLeft: { lat: corners.TL.lat, lng: corners.TL.lng },
+            topRight: { lat: corners.TR.lat, lng: corners.TR.lng },
+            bottomLeft: { lat: corners.BL.lat, lng: corners.BL.lng },
+            bottomRight: { lat: corners.BR.lat, lng: corners.BR.lng }
+          };
+          (window as any).currentCenterPosition = newCenter;
+          
+          alert('Mapa ajustado correctamente por puntos de referencia');
+        }
+      };
+      
+      img.onerror = () => {
+        console.log('Error cargando imagen, usando dimensiones por defecto');
+        alert('Error al cargar la imagen del mapa.');
+      };
+      
+      // Load the image to get its dimensions
+      if (selectedMap?.imageUrl) {
+        img.src = selectedMap.imageUrl;
+      } else {
+        throw new Error('No se pudo cargar la imagen del mapa');
+      }
+      
+    } catch (error: any) {
+      console.error('Error adjusting map by reference points:', error);
+      alert(`Error al ajustar el mapa: ${error?.message || 'Error desconocido'}. Verifica que los puntos estén correctamente seleccionados.`);
+    }
+  };
+
   // Listen for clear map selection event
   useEffect(() => {
     const handleClearEvent = () => {
@@ -222,6 +342,8 @@ function App() {
           onEditComplete={handleEditComplete}
           onOpacityChange={handleOpacityChange}
           onRotationChange={handleRotationChange}
+          onReferencePointsClick={handleReferencePointsClick}
+          onMapReady={handleMapReady}
         />
 
       {/* Menu Button - hidden in edit mode */}
@@ -323,7 +445,7 @@ function App() {
         <div style={{
           position: 'fixed',
           top: '20px',
-          left: '20px',
+          right: '20px',
           zIndex: 1000,
           backgroundColor: '#E74C3C',
           color: 'white',
@@ -373,6 +495,14 @@ function App() {
           setEditingMap(null);
           setSelectedMap(null);
         }}
+      />
+
+      {/* Reference Points Modal */}
+      <ReferencePointsModal
+        isOpen={isReferencePointsModalOpen}
+        onClose={() => setIsReferencePointsModalOpen(false)}
+        map={selectedMap}
+        onPointsSelected={handleReferencePointsSelected}
       />
     </div>
   );

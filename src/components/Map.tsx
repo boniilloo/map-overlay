@@ -19,6 +19,8 @@ interface MapProps {
   onEditComplete: (bounds: L.LatLngBounds) => void;
   onOpacityChange?: (opacity: number) => void;
   onRotationChange?: (rotation: number) => void;
+  onReferencePointsClick?: () => void;
+  onMapReady?: (map: L.Map) => void;
 }
 
 // Component to handle map center updates
@@ -35,6 +37,19 @@ const MapUpdater: React.FC<{ center: [number, number] }> = ({ center }) => {
       }
     }
   }, [center, map]);
+
+  return null;
+};
+
+// Component to capture map reference
+const MapReferenceCapture: React.FC<{ onMapReady: (map: L.Map) => void }> = ({ onMapReady }) => {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (map) {
+      onMapReady(map);
+    }
+  }, [map, onMapReady]);
 
   return null;
 };
@@ -877,7 +892,7 @@ const CurrentLocationMarker: React.FC<{ currentLocation: GPSLocation | null }> =
   );
 };
 
-const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onEditComplete, onOpacityChange, onRotationChange }) => {
+const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onEditComplete, onOpacityChange, onRotationChange, onReferencePointsClick, onMapReady }) => {
   const [mapCenter, setMapCenter] = useState<[number, number]>([40.4168, -3.7038]); // Madrid default
   const [zoom] = useState(13);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -978,6 +993,9 @@ const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onE
         
         {/* Map updater component */}
         {isMapReady && <MapUpdater center={mapCenter} />}
+        
+        {/* Map reference capture component */}
+        {onMapReady && <MapReferenceCapture onMapReady={onMapReady} />}
         
         {/* Center location button - hidden in edit mode */}
         {!isEditMode && <CenterLocationButton currentLocation={currentLocation} />}
@@ -1139,8 +1157,38 @@ const Map: React.FC<MapProps> = ({ currentLocation, selectedMap, isEditMode, onE
           {/* Right side - Buttons */}
           <div style={{
             display: 'flex',
-            gap: '16px'
+            gap: '16px',
+            alignItems: 'center'
           }}>
+            {/* Reference Points Button */}
+            <button
+              style={{
+                backgroundColor: '#3498DB',
+                color: 'white',
+                padding: '10px 16px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                border: 'none',
+                fontSize: '14px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+              onClick={onReferencePointsClick}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#2980B9';
+                e.currentTarget.style.transform = 'scale(1.05)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#3498DB';
+                e.currentTarget.style.transform = 'scale(1)';
+              }}
+              title="Ajustar por puntos de referencia"
+            >
+              📍 Ajustar por puntos
+            </button>
             <button
               style={{
                 backgroundColor: '#E74C3C',

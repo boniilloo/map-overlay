@@ -60,4 +60,12 @@ export interface OverlayControlState {
   rotation: number;
   isVisible: boolean;
   isLocked: boolean;
+}
+
+export interface Point {
+  id: number;
+  lat: number;
+  lng: number;
+  x: number;
+  y: number;
 } 
