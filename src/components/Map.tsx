@@ -106,9 +106,11 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
   const anchorPointMarkersRef = useRef<L.Marker[]>([]);
   const [imageError, setImageError] = useState(false);
   
-  // Variables para el arrastre de la imagen
+  // Variables para el nuevo sistema de arrastre
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number; bounds: L.LatLngBounds } | null>(null);
+  const customOverlayRef = useRef<HTMLDivElement | null>(null);
+  const [overlayPosition, setOverlayPosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
   
 
 
@@ -155,61 +157,69 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
   // Expose getCurrentBounds globally for the confirm button
   (window as any).getCurrentOverlayBounds = getCurrentBounds;
 
+  // useEffect para deshabilitar interacciones del mapa en modo de edición
+  useEffect(() => {
+    if (isEditMode) {
+      map.dragging.disable();
+      map.scrollWheelZoom.disable();
+      map.touchZoom.disable();
+      map.doubleClickZoom.disable();
+    } else {
+      map.dragging.enable();
+      map.scrollWheelZoom.enable();
+      map.touchZoom.enable();
+      map.doubleClickZoom.enable();
+    }
+
+    return () => {
+      // Restaurar interacciones al desmontar
+      map.dragging.enable();
+      map.scrollWheelZoom.enable();
+      map.touchZoom.enable();
+      map.doubleClickZoom.enable();
+    };
+  }, [isEditMode, map]);
+
   // Función para manejar el inicio del arrastre de la imagen
-  const handleImageDragStart = (e: MouseEvent) => {
-    if (!isEditMode || !overlayRef.current) return;
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!isEditMode) return;
     
-    // Prevenir completamente cualquier interacción con el mapa
     e.preventDefault();
     e.stopPropagation();
-    e.stopImmediatePropagation();
     
     isDraggingRef.current = true;
     dragStartRef.current = {
       x: e.clientX,
       y: e.clientY,
-      bounds: overlayRef.current.getBounds()
+      bounds: overlayRef.current?.getBounds() || L.latLngBounds([0, 0], [0, 0])
     };
-    
-    // Deshabilitar completamente el arrastre del mapa
-    map.dragging.disable();
-    map.touchZoom.disable();
-    map.doubleClickZoom.disable();
-    map.scrollWheelZoom.disable();
     
     // Cambiar el cursor
     document.body.style.cursor = 'grabbing';
-    
-    // Agregar una clase al body para prevenir selección de texto
     document.body.style.userSelect = 'none';
-    (document.body.style as any).webkitUserSelect = 'none';
-    (document.body.style as any).mozUserSelect = 'none';
-    (document.body.style as any).msUserSelect = 'none';
   };
 
   // Función para manejar el arrastre de la imagen
-  const handleImageDrag = (e: MouseEvent) => {
+  const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDraggingRef.current || !dragStartRef.current || !overlayRef.current) return;
     
     e.preventDefault();
     e.stopPropagation();
-    e.stopImmediatePropagation();
     
-    // Calcular el desplazamiento desde el punto inicial
-    const deltaX = e.clientX - dragStartRef.current.x;
-    const deltaY = e.clientY - dragStartRef.current.y;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
     
     // Convertir el desplazamiento en píxeles a coordenadas geográficas
     const startPoint = map.containerPointToLatLng([0, 0]);
-    const endPoint = map.containerPointToLatLng([deltaX, deltaY]);
+    const endPoint = map.containerPointToLatLng([dx, dy]);
     
     const latOffset = endPoint.lat - startPoint.lat;
     const lngOffset = endPoint.lng - startPoint.lng;
     
-    // Obtener los bounds originales (del inicio del arrastre)
+    // Obtener los bounds originales
     const originalBounds = dragStartRef.current.bounds;
     
-    // Crear nuevos bounds desplazados desde la posición original
+    // Crear nuevos bounds desplazados
     const newBounds = L.latLngBounds(
       [originalBounds.getSouthWest().lat + latOffset, originalBounds.getSouthWest().lng + lngOffset],
       [originalBounds.getNorthEast().lat + latOffset, originalBounds.getNorthEast().lng + lngOffset]
@@ -234,28 +244,18 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
   };
 
   // Función para manejar el fin del arrastre de la imagen
-  const handleImageDragEnd = (e: MouseEvent) => {
+  const handleMouseUp = (e: React.MouseEvent) => {
     if (!isDraggingRef.current) return;
     
     e.preventDefault();
     e.stopPropagation();
-    e.stopImmediatePropagation();
     
     isDraggingRef.current = false;
     dragStartRef.current = null;
     
-    // Habilitar todas las interacciones del mapa
-    map.dragging.enable();
-    map.touchZoom.enable();
-    map.doubleClickZoom.enable();
-    map.scrollWheelZoom.enable();
-    
     // Restaurar el cursor y la selección de texto
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    (document.body.style as any).webkitUserSelect = '';
-    (document.body.style as any).mozUserSelect = '';
-    (document.body.style as any).msUserSelect = '';
   };
 
   // useEffect para manejar eventos globales de mouse
@@ -266,7 +266,9 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
       if (isDraggingRef.current) {
         e.preventDefault();
         e.stopPropagation();
-        handleImageDrag(e);
+        // Convertir el evento a React.MouseEvent para handleMouseMove
+        const reactEvent = e as any;
+        handleMouseMove(reactEvent);
       }
     };
 
@@ -274,7 +276,9 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
       if (isDraggingRef.current) {
         e.preventDefault();
         e.stopPropagation();
-        handleImageDragEnd(e);
+        // Convertir el evento a React.MouseEvent para handleMouseUp
+        const reactEvent = e as any;
+        handleMouseUp(reactEvent);
       }
     };
 
@@ -374,67 +378,14 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
         }
       }
 
-      // Add visual border and drag functionality in edit mode
+      // Add visual border in edit mode
       if (isEditMode) {
-        // Wait for the image to load before applying styles
         const element = imageOverlay.getElement();
         if (element) {
-          // Apply styles immediately
           element.style.border = '4px solid #3A5F76';
           element.style.boxShadow = '0 0 15px rgba(58, 95, 118, 0.7)';
           element.style.borderRadius = '4px';
           element.style.zIndex = '1000';
-          element.style.cursor = 'grab';
-          element.title = 'Arrastra para mover el mapa';
-          
-          // Crear un div transparente que cubra la imagen para manejar el arrastre
-          const dragOverlay = document.createElement('div');
-          dragOverlay.style.position = 'absolute';
-          dragOverlay.style.top = '0';
-          dragOverlay.style.left = '0';
-          dragOverlay.style.width = '100%';
-          dragOverlay.style.height = '100%';
-          dragOverlay.style.cursor = 'grab';
-          dragOverlay.style.zIndex = '1001';
-          dragOverlay.style.pointerEvents = 'auto';
-          dragOverlay.title = 'Arrastra para mover el mapa';
-          
-          // Agregar eventos de arrastre al div transparente
-          dragOverlay.addEventListener('mousedown', handleImageDragStart);
-          dragOverlay.addEventListener('mouseenter', () => {
-            if (!isDraggingRef.current) {
-              dragOverlay.style.cursor = 'grab';
-              element.style.transform = 'scale(1.01)';
-            }
-          });
-          dragOverlay.addEventListener('mouseleave', () => {
-            if (!isDraggingRef.current) {
-              dragOverlay.style.cursor = 'grab';
-              element.style.transform = 'scale(1)';
-            }
-          });
-          
-          // Agregar el div transparente al elemento de la imagen
-          element.style.position = 'relative';
-          element.appendChild(dragOverlay);
-          
-          // Guardar referencia para limpiar después
-          (element as any)._dragOverlay = dragOverlay;
-        }
-        
-        // Also apply styles after image loads
-        const img = element?.querySelector('img');
-        if (img && element) {
-          img.addEventListener('load', () => {
-            if (isEditMode) {
-              element.style.border = '4px solid #3A5F76';
-              element.style.boxShadow = '0 0 15px rgba(58, 95, 118, 0.7)';
-              element.style.borderRadius = '4px';
-              element.style.zIndex = '1000';
-              element.style.cursor = 'grab';
-              element.title = 'Arrastra para mover el mapa';
-            }
-          });
         }
       }
 
@@ -564,16 +515,9 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
 
     // Cleanup function
     return () => {
-      // Limpiar eventos de arrastre si existen
+      // Cleanup básico
       if (overlayRef.current) {
-        const element = overlayRef.current.getElement();
-        if (element) {
-          // Remover el div transparente si existe
-          const dragOverlay = (element as any)._dragOverlay;
-          if (dragOverlay && dragOverlay.parentNode) {
-            dragOverlay.parentNode.removeChild(dragOverlay);
-          }
-        }
+        // No necesitamos limpiar eventos especiales en el nuevo enfoque
       }
 
       if (overlayRef.current && map.getContainer()) {
@@ -629,6 +573,38 @@ const ImageOverlayComponent: React.FC<{ overlay: OverlayData; isEditMode: boolea
         </div>
       </div>
     );
+  }
+
+  // Renderizar el div personalizado para arrastre en modo de edición
+  if (isEditMode && overlayRef.current) {
+    const element = overlayRef.current.getElement();
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      const mapRect = map.getContainer().getBoundingClientRect();
+      
+      return (
+        <div
+          ref={customOverlayRef}
+          style={{
+            position: 'absolute',
+            top: rect.top - mapRect.top,
+            left: rect.left - mapRect.left,
+            width: rect.width,
+            height: rect.height,
+            cursor: 'grab',
+            zIndex: 1001,
+            pointerEvents: 'auto',
+            border: '2px dashed #3A5F76',
+            backgroundColor: 'rgba(58, 95, 118, 0.1)',
+          }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          title="Arrastra para mover el mapa"
+        />
+      );
+    }
   }
 
   return null;
